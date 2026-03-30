@@ -361,6 +361,17 @@ const confirmCheckoutSessionHandler = async (req, res) => {
 app.post('/payments/create-checkout-session', createCheckoutSessionHandler);
 app.post('/payments/confirm-checkout-session', confirmCheckoutSessionHandler);
 
+// Stripe redirect target for Expo openAuthSessionAsync
+app.get('/payments/stripe-return', (req, res) => {
+  const returnUrl = req.query.returnUrl;
+  const fallback = 'smartsociety://bills';
+  // Basic validation to avoid redirecting to arbitrary schemes
+  if (typeof returnUrl === 'string' && returnUrl.startsWith('smartsociety://')) {
+    return res.redirect(302, returnUrl);
+  }
+  return res.redirect(302, fallback);
+});
+
 // Backward-compatible legacy API endpoints
 app.post('/api/create-payment-intent', createCheckoutSessionHandler);
 app.post('/api/confirm-payment', confirmCheckoutSessionHandler);
