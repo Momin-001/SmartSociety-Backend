@@ -361,13 +361,18 @@ const confirmCheckoutSessionHandler = async (req, res) => {
 app.post('/payments/create-checkout-session', createCheckoutSessionHandler);
 app.post('/payments/confirm-checkout-session', confirmCheckoutSessionHandler);
 
-// Stripe redirect target for Expo openAuthSessionAsync
+// Stripe redirect target: HTTPS page Stripe loads → 302 → app deep link (pairs with mobile app).
 function pickStripeReturnTarget(raw) {
   const fallback = 'smartsociety://bills';
   if (raw == null || raw === '') return fallback;
   const s = typeof raw === 'string' ? raw : String(raw);
   try {
-    const decoded = decodeURIComponent(s);
+    let decoded = s;
+    try {
+      decoded = decodeURIComponent(s);
+    } catch {
+      /* Express may have already decoded the query string */
+    }
     if (decoded.startsWith('smartsociety://')) return decoded;
   } catch {
     /* ignore */
@@ -377,19 +382,8 @@ function pickStripeReturnTarget(raw) {
 
 app.get('/payments/stripe-return', (req, res) => {
   const target = pickStripeReturnTarget(req.query.returnUrl);
-  const escaped = target
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'");
-
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
-  res.send(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="font-family:system-ui;text-align:center;padding:2rem">
-  <p>Returning to the app…</p>
-  <p><a href="${target.replace(/"/g, '&quot;')}">Tap here if nothing happens</a></p>
-  <script>window.location.replace('${escaped}');</script>
-</body></html>`);
+  return res.redirect(302, target);
 });
 
 // Backward-compatible legacy API endpoints
