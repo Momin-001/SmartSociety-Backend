@@ -417,7 +417,63 @@ function pickStripeReturnTarget(raw) {
 app.get('/payments/stripe-return', (req, res) => {
   const target = pickStripeReturnTarget(req.query.returnUrl);
   res.setHeader('Cache-Control', 'no-store');
-  return res.redirect(302, target);
+  return res.status(200).send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Returning to Smart Society...</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        margin: 0;
+        padding: 24px;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f6f8fb;
+        color: #111827;
+      }
+      .card {
+        width: 100%;
+        max-width: 460px;
+        background: #fff;
+        border-radius: 14px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+        padding: 24px;
+        text-align: center;
+      }
+      .btn {
+        display: inline-block;
+        margin-top: 14px;
+        padding: 12px 16px;
+        border-radius: 10px;
+        background: #0f766e;
+        color: #fff;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .muted {
+        color: #6b7280;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h2>Returning to Smart Society</h2>
+      <p class="muted">If the app does not open automatically, tap the button below.</p>
+      <a class="btn" href="${target}">Open App</a>
+    </div>
+    <script>
+      window.location.replace(${JSON.stringify(target)});
+      setTimeout(function () {
+        window.location.href = ${JSON.stringify(target)};
+      }, 600);
+    </script>
+  </body>
+</html>`);
 });
 
 // Backward-compatible legacy API endpoints
