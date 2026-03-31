@@ -407,7 +407,14 @@ function pickStripeReturnTarget(raw) {
     } catch {
       /* Express may have already decoded the query string */
     }
-    if (decoded.startsWith('smartsociety://')) return decoded;
+    if (
+      decoded.startsWith('smartsociety://')
+      || decoded.startsWith('exp://')
+      || decoded.startsWith('exps://')
+      || decoded.startsWith('exponent://')
+    ) {
+      return decoded;
+    }
   } catch {
     /* ignore */
   }
