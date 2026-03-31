@@ -316,41 +316,75 @@ app.post('/api/generate-monthly-bills', async (req, res) => {
 // STRIPE PAYMENT
 // ═══════════════════════════════════════════════════════════════════
 
-// Create a checkout/payment session for a bill
+// Create a hosted Stripe Checkout Session for a bill
 const createCheckoutSessionHandler = async (req, res) => {
   try {
-    const { amount, billId } = req.body;
-    if (!amount || !billId) {
-      return res.status(400).json({ error: 'amount and billId are required' });
+    const { amount, billId, currency, successUrl, cancelUrl, description } = req.body;
+    if (!amount || !billId || !successUrl || !cancelUrl) {
+      return res.status(400).json({ error: 'amount, billId, successUrl, and cancelUrl are required' });
     }
 
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100), // Stripe uses cents
-      currency: 'inr',
+    const checkoutSession = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: String(currency || 'usd').toLowerCase(),
+            product_data: {
+              name: description || `Bill Payment (${billId})`,
+            },
+            unit_amount: Math.round(Number(amount) * 100),
+          },
+        },
+      ],
       metadata: { billId },
     });
 
-    res.json({ clientSecret: paymentIntent.client_secret });
+    res.json({
+      success: true,
+      sessionId: checkoutSession.id,
+      checkoutUrl: checkoutSession.url,
+    });
   } catch (error) {
-    console.error('Error creating payment intent:', error);
-    res.status(500).json({ error: 'Failed to create payment intent' });
+    console.error('Error creating checkout session:', error);
+    res.status(500).json({ error: 'Failed to create checkout session' });
   }
 };
 
-// Confirm checkout/payment and mark bill as paid in Firestore
+// Verify checkout session payment and mark bill as paid in Firestore
 const confirmCheckoutSessionHandler = async (req, res) => {
   try {
-    const { billId, paymentIntentId } = req.body;
-    if (!billId) return res.status(400).json({ error: 'billId is required' });
+    const { billId, checkoutSessionId } = req.body;
+    if (!billId || !checkoutSessionId) {
+      return res.status(400).json({ error: 'billId and checkoutSessionId are required' });
+    }
+
+    const checkoutSession = await stripe.checkout.sessions.retrieve(checkoutSessionId);
+    if (checkoutSession.payment_status !== 'paid') {
+      return res.status(409).json({ success: false, error: 'Payment is not completed yet' });
+    }
+
+    const metadataBillId = checkoutSession.metadata?.billId;
+    if (metadataBillId && metadataBillId !== billId) {
+      return res.status(400).json({ success: false, error: 'Bill mismatch for checkout session' });
+    }
 
     const billRef = firestore.collection('bills').doc(billId);
     await billRef.update({
       status: 'paid',
       paidAt: admin.firestore.Timestamp.now(),
-      paymentIntentId: paymentIntentId || null,
+      paymentIntentId: checkoutSession.payment_intent || null,
     });
 
-    res.json({ success: true, billId });
+    res.json({
+      success: true,
+      billId,
+      paymentIntentId: checkoutSession.payment_intent || null,
+    });
   } catch (error) {
     console.error('Error confirming payment:', error);
     res.status(500).json({ error: 'Failed to confirm payment' });
