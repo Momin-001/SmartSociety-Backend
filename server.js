@@ -487,6 +487,70 @@ app.get('/payments/stripe-return', (req, res) => {
 app.post('/api/create-payment-intent', createCheckoutSessionHandler);
 app.post('/api/confirm-payment', confirmCheckoutSessionHandler);
 
+// ── Get payment histories for many users (batch, last 6 months) ─────────
+// This avoids one HTTP request per user from the frontend.
+app.post('/api/payment-history/batch', async (req, res) => {
+  try {
+    const { userIds } = req.body || {};
+    if (!Array.isArray(userIds) || userIds.length === 0) return res.json({});
+
+    const uniqueUserIds = [...new Set(userIds.map((id) => String(id)).filter(Boolean))];
+    if (uniqueUserIds.length === 0) return res.json({});
+
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+    const chunkSize = 10; // Firestore `in` query limit
+    const chunks = [];
+    for (let i = 0; i < uniqueUserIds.length; i += chunkSize) {
+      chunks.push(uniqueUserIds.slice(i, i + chunkSize));
+    }
+
+    const byUser = {};
+
+    await Promise.all(
+      chunks.map(async (chunk) => {
+        const billsSnap = await firestore.collection('bills')
+          .where('userId', 'in', chunk)
+          .get();
+
+        billsSnap.forEach((doc) => {
+          const data = doc.data();
+          const uid = data.userId;
+          if (!uid) return;
+
+          // Filter client-side to avoid Firestore composite-index requirements.
+          const createdAtTs = data.createdAt;
+          const createdAt = createdAtTs?.toDate?.();
+          if (!createdAt || createdAt < sixMonthsAgo) return;
+
+          if (!byUser[uid]) byUser[uid] = [];
+
+          byUser[uid].push({
+            id: doc.id,
+            month: data.month,
+            type: data.type,
+            amount: data.amount,
+            status: data.status,
+            dueDate: data.dueDate?.toDate?.()?.toISOString?.(),
+            paidAt: data.paidAt?.toDate?.()?.toISOString?.() || null,
+          });
+        });
+      })
+    );
+
+    // Stable output ordering (useful for deterministic prompts)
+    for (const uid of Object.keys(byUser)) {
+      byUser[uid].sort((a, b) => String(a.month || '').localeCompare(String(b.month || '')));
+    }
+
+    res.json(byUser);
+  } catch (error) {
+    console.error('Error fetching payment histories (batch):', error);
+    res.status(500).json({ error: 'Failed to fetch payment histories' });
+  }
+});
+
 // ── Get payment history for a user (last 6 months) ─────────────────
 app.get('/api/payment-history/:userId', async (req, res) => {
   try {
